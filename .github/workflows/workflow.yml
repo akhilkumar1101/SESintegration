@@ -1,0 +1,76 @@
+
+name: CI with AWS SES Email (OIDC)
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+# Required permissions for GitHub OIDC
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Step 1: Checkout source code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Java 21
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Step 3: Configure AWS credentials using OIDC
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::247585298763:role/GitHubActionsSesSenderRole
+          aws-region: us-east-1
+
+      # Step 4: Maven Build and Test
+      - name: Maven Build and Test
+        run: |
+          mvn clean test package
+
+      # Step 5: Verify generated JAR
+      - name: Verify Build Artifact
+        run: |
+          echo "Checking generated JAR..."
+          ls -lh target/
+          test -f target/maven-ses-demo-1.0.0.jar
+
+      # Step 6: Display test reports
+      - name: Display Test Reports
+        run: |
+          cat target/surefire-reports/*.txt
+
+      # Step 7: Send success email
+      - name: Send Email Notification (Success)
+        if: success()
+        run: |
+          aws ses send-email \
+            --from 'akhil.46.kk@gmail.com' \
+            --destination 'ToAddresses=akhil.46.k@gmail.com' \
+            --message 'Subject={Data="Build Success - ${{ github.repository }}"},Body={Text={Data="Build for ${{ github.repository }} on branch ${{ github.ref_name }} was successful!\n\nCommit: ${{ github.sha }}\nWorkflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}}' \
+            --region us-east-1
+
+      # Step 8: Send failure email
+      - name: Send Email Notification (Failure)
+        if: failure()
+        run: |
+          aws ses send-email \
+            --from 'akhil.46.kk@gmail.com' \
+            --destination 'ToAddresses=akhil.46.k@gmail.com' \
+            --message 'Subject={Data="Build FAILED - ${{ github.repository }}"},Body={Text={Data="ALERT: Build for ${{ github.repository }} on branch ${{ github.ref_name }} FAILED!\n\nCommit: ${{ github.sha }}\nPlease review logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}}' \
+            --region us-east-1
